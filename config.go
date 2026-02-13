@@ -14,11 +14,15 @@ type Config struct {
 	// Default: 8888
 	Port int
 
-	// ClaudeAPIKey is the API key for Claude
-	ClaudeAPIKey string
+	// Provider is the AI provider to use (anthropic, deepseek)
+	// Default: anthropic
+	Provider string
 
-	// Model is the Claude model to use
-	// Default: claude-sonnet-4-5-20250929
+	// APIKey is the API key for the provider
+	APIKey string
+
+	// Model is the model to use
+	// Default: claude-3-5-sonnet-20241022 for anthropic, deepseek-chat for deepseek
 	Model string
 }
 
@@ -30,7 +34,8 @@ func (c *Config) setDefaults() {
 	if c.Port == 0 {
 		c.Port = 8888
 	}
-	if c.Model == "" {
-		c.Model = "claude-sonnet-4-5-20250929"
+	if c.Provider == "" {
+		c.Provider = "anthropic"
 	}
+	// Model defaults are set by the provider if not specified
 }

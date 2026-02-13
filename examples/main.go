@@ -55,17 +55,24 @@ func main() {
 
 	// Start AI Assistant
 	go func() {
-		apiKey := os.Getenv("CLAUDE_API_KEY")
+		apiKey := os.Getenv("AI_API_KEY")
 		if apiKey == "" {
-			log.Println("[WARNING] CLAUDE_API_KEY not set. AI Assistant will not work properly.")
-			log.Println("[INFO] Set it with: export CLAUDE_API_KEY=your-key")
+			log.Println("[WARNING] AI_API_KEY not set. AI Assistant will not work properly.")
+			log.Println("[INFO] Set it with: export AI_API_KEY=your-key")
+		}
+
+		// Get provider from env, default to anthropic
+		provider := os.Getenv("AI_PROVIDER")
+		if provider == "" {
+			provider = "anthropic"
 		}
 
 		assistant, err := aiassistant.New(aiassistant.Config{
-			SourcePath:   "/app/source",
-			LogFiles:     []string{"/var/log/app.log"}, // Explicitly set for demo
-			Port:         8888,
-			ClaudeAPIKey: apiKey,
+			SourcePath: "/app/source",
+			LogFiles:   []string{"/var/log/app.log"}, // Explicitly set for demo
+			Port:       8888,
+			Provider:   provider,
+			APIKey:     apiKey,
 		})
 
 		if err != nil {

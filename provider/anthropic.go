@@ -1,4 +1,4 @@
-package claude
+package provider
 
 import (
 	"bytes"
@@ -8,34 +8,45 @@ import (
 	"net/http"
 )
 
-const (
-	apiURL = "https://api.anthropic.com/v1/messages"
-)
+const anthropicAPIURL = "https://api.anthropic.com/v1/messages"
 
-// Client is a Claude API client
-type Client struct {
+// AnthropicProvider implements the Provider interface for Anthropic/Claude
+type AnthropicProvider struct {
 	apiKey     string
 	model      string
 	httpClient *http.Client
 }
 
-// NewClient creates a new Claude API client
-func NewClient(apiKey, model string) *Client {
-	return &Client{
+// NewAnthropicProvider creates a new Anthropic provider
+func NewAnthropicProvider(apiKey, model string) *AnthropicProvider {
+	if model == "" {
+		model = "claude-sonnet-4-5-20250929"
+	}
+	return &AnthropicProvider{
 		apiKey:     apiKey,
 		model:      model,
 		httpClient: &http.Client{},
 	}
 }
 
+// GetName returns the provider name
+func (p *AnthropicProvider) GetName() string {
+	return "Anthropic"
+}
+
 // SendMessage sends a message to Claude and returns the response
-func (c *Client) SendMessage(messages []Message, tools []Tool, system string) (*Response, error) {
-	req := Request{
-		Model:     c.model,
-		MaxTokens: 4096,
-		Messages:  messages,
-		Tools:     tools,
-		System:    system,
+func (p *AnthropicProvider) SendMessage(messages []Message, tools []Tool, system string) (*Response, error) {
+	req := map[string]interface{}{
+		"model":      p.model,
+		"max_tokens": 4096,
+		"messages":   messages,
+	}
+
+	if len(tools) > 0 {
+		req["tools"] = tools
+	}
+	if system != "" {
+		req["system"] = system
 	}
 
 	reqBody, err := json.Marshal(req)
@@ -43,16 +54,16 @@ func (c *Client) SendMessage(messages []Message, tools []Tool, system string) (*
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(reqBody))
+	httpReq, err := http.NewRequest("POST", anthropicAPIURL, bytes.NewBuffer(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("x-api-key", c.apiKey)
+	httpReq.Header.Set("x-api-key", p.apiKey)
 	httpReq.Header.Set("anthropic-version", "2023-06-01")
 
-	resp, err := c.httpClient.Do(httpReq)
+	resp, err := p.httpClient.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
@@ -76,13 +87,19 @@ func (c *Client) SendMessage(messages []Message, tools []Tool, system string) (*
 }
 
 // SendMessageStream sends a message to Claude and streams the response
-func (c *Client) SendMessageStream(messages []Message, tools []Tool, system string) (io.ReadCloser, error) {
-	req := Request{
-		Model:     c.model,
-		MaxTokens: 4096,
-		Messages:  messages,
-		Tools:     tools,
-		System:    system,
+func (p *AnthropicProvider) SendMessageStream(messages []Message, tools []Tool, system string) (io.ReadCloser, error) {
+	req := map[string]interface{}{
+		"model":      p.model,
+		"max_tokens": 4096,
+		"messages":   messages,
+		"stream":     true,
+	}
+
+	if len(tools) > 0 {
+		req["tools"] = tools
+	}
+	if system != "" {
+		req["system"] = system
 	}
 
 	reqBody, err := json.Marshal(req)
@@ -90,17 +107,17 @@ func (c *Client) SendMessageStream(messages []Message, tools []Tool, system stri
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(reqBody))
+	httpReq, err := http.NewRequest("POST", anthropicAPIURL, bytes.NewBuffer(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("x-api-key", c.apiKey)
+	httpReq.Header.Set("x-api-key", p.apiKey)
 	httpReq.Header.Set("anthropic-version", "2023-06-01")
 	httpReq.Header.Set("Accept", "text/event-stream")
 
-	resp, err := c.httpClient.Do(httpReq)
+	resp, err := p.httpClient.Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

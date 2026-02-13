@@ -3,7 +3,7 @@ package tools
 import (
 	"fmt"
 
-	"github.com/willknow-ai/willknow-go/claude"
+	"github.com/willknow-ai/willknow-go/provider"
 )
 
 // ToolExecutor is an interface for tool execution
@@ -55,9 +55,9 @@ func (r *Registry) Execute(name string, params map[string]interface{}) (string, 
 	}
 }
 
-// GetToolDefinitions returns Claude API tool definitions
-func (r *Registry) GetToolDefinitions() []claude.Tool {
-	tools := []claude.Tool{
+// GetToolDefinitions returns provider API tool definitions
+func (r *Registry) GetToolDefinitions() []provider.Tool {
+	tools := []provider.Tool{
 		{
 			Name:        "read_file",
 			Description: "Read the contents of a file from the source code directory. Returns the file content with line numbers.",
@@ -120,7 +120,7 @@ func (r *Registry) GetToolDefinitions() []claude.Tool {
 
 	// Add log query tool if configured
 	if r.logTool != nil {
-		tools = append(tools, claude.Tool{
+		tools = append(tools, provider.Tool{
 			Name:        "read_logs",
 			Description: "Query application logs by request ID or search pattern. Returns relevant log entries with context.",
 			InputSchema: map[string]interface{}{

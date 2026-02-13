@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/willknow-ai/willknow-go/claude"
 	"github.com/gorilla/websocket"
+	"github.com/willknow-ai/willknow-go/provider"
 )
 
 const systemPrompt = `You are an AI debugging assistant embedded in a running application.
@@ -51,7 +51,7 @@ type ChatResponse struct {
 
 // Session manages a chat session
 type Session struct {
-	messages []claude.Message
+	messages []provider.Message
 	mu       sync.Mutex
 }
 
@@ -345,7 +345,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, a *Assistant) {
 	defer conn.Close()
 
 	session := &Session{
-		messages: []claude.Message{},
+		messages: []provider.Message{},
 	}
 
 	for {
@@ -358,9 +358,9 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, a *Assistant) {
 
 		// Add user message to session
 		session.mu.Lock()
-		session.messages = append(session.messages, claude.Message{
+		session.messages = append(session.messages, provider.Message{
 			Role: "user",
-			Content: []claude.ContentBlock{
+			Content: []provider.ContentBlock{
 				{Type: "text", Text: msg.Content},
 			},
 		})
@@ -384,20 +384,20 @@ func processChat(conn *websocket.Conn, a *Assistant, session *Session) error {
 	maxTurns := 10 // Allow multiple tool use turns
 
 	for turn := 0; turn < maxTurns; turn++ {
-		// Call Claude API
+		// Call AI API
 		session.mu.Lock()
-		messages := make([]claude.Message, len(session.messages))
+		messages := make([]provider.Message, len(session.messages))
 		copy(messages, session.messages)
 		session.mu.Unlock()
 
 		tools := a.toolRegistry.GetToolDefinitions()
-		response, err := a.claudeClient.SendMessage(messages, tools, systemPrompt)
+		response, err := a.provider.SendMessage(messages, tools, systemPrompt)
 		if err != nil {
 			return err
 		}
 
 		// Process response content
-		var assistantContent []claude.ContentBlock
+		var assistantContent []provider.ContentBlock
 		hasToolUse := false
 
 		for _, block := range response.Content {
@@ -421,13 +421,13 @@ func processChat(conn *websocket.Conn, a *Assistant, session *Session) error {
 
 				// Add tool result to next message
 				session.mu.Lock()
-				session.messages = append(session.messages, claude.Message{
+				session.messages = append(session.messages, provider.Message{
 					Role:    "assistant",
 					Content: assistantContent,
 				})
-				session.messages = append(session.messages, claude.Message{
+				session.messages = append(session.messages, provider.Message{
 					Role: "user",
-					Content: []claude.ContentBlock{
+					Content: []provider.ContentBlock{
 						{
 							Type:      "tool_result",
 							ToolUseID: block.ID,
@@ -442,7 +442,7 @@ func processChat(conn *websocket.Conn, a *Assistant, session *Session) error {
 		// If no tool use, we're done
 		if !hasToolUse {
 			session.mu.Lock()
-			session.messages = append(session.messages, claude.Message{
+			session.messages = append(session.messages, provider.Message{
 				Role:    "assistant",
 				Content: assistantContent,
 			})

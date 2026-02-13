@@ -5,7 +5,9 @@
 ### 前置要求
 
 - Docker 已安装
-- Claude API Key ([获取地址](https://console.anthropic.com/))
+- AI API Key
+  - Anthropic Claude: [获取地址](https://console.anthropic.com/)
+  - DeepSeek: [获取地址](https://platform.deepseek.com/)
 
 ### 步骤
 
@@ -18,7 +20,13 @@ cd willknow
 
 **2. 设置 API Key**
 ```bash
-export CLAUDE_API_KEY=sk-ant-xxxxx  # 替换为你的 API Key
+# 使用 Anthropic Claude
+export AI_API_KEY=sk-ant-xxxxx  # 替换为你的 API Key
+export AI_PROVIDER=anthropic
+
+# 或使用 DeepSeek
+export AI_API_KEY=sk-xxxxx  # 替换为你的 API Key
+export AI_PROVIDER=deepseek
 ```
 
 **3. 构建并运行**
@@ -27,7 +35,10 @@ export CLAUDE_API_KEY=sk-ant-xxxxx  # 替换为你的 API Key
 docker build -f examples/Dockerfile -t demo .
 
 # 运行容器
-docker run -p 8080:8080 -p 8888:8888 -e CLAUDE_API_KEY=$CLAUDE_API_KEY demo
+docker run -p 8080:8080 -p 8888:8888 \
+  -e AI_API_KEY=$AI_API_KEY \
+  -e AI_PROVIDER=$AI_PROVIDER \
+  demo
 ```
 
 **4. 测试功能**
@@ -61,9 +72,10 @@ import aiassistant "github.com/willknow-ai/willknow-go"
 func main() {
     go func() {
         assistant, _ := aiassistant.New(aiassistant.Config{
-            SourcePath:   "/app/source",
-            Port:         8888,
-            ClaudeAPIKey: os.Getenv("CLAUDE_API_KEY"),
+            SourcePath: "/app/source",
+            Port:       8888,
+            Provider:   "anthropic", // 或 "deepseek"
+            APIKey:     os.Getenv("AI_API_KEY"),
         })
         assistant.Start()
     }()

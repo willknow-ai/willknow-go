@@ -6,7 +6,7 @@ import (
 	"log"
 	"strings"
 
-	"github.com/willknow-ai/willknow-go/claude"
+	"github.com/willknow-ai/willknow-go/provider"
 	"github.com/willknow-ai/willknow-go/tools"
 )
 
@@ -26,12 +26,12 @@ If you cannot find any log configuration, return common paths:
 ["/var/log/app.log"]`
 
 // DetectLogFiles uses AI to analyze source code and detect log file paths
-func DetectLogFiles(claudeClient *claude.Client, toolRegistry *tools.Registry, sourcePath string) ([]string, error) {
+func DetectLogFiles(aiProvider provider.Provider, toolRegistry *tools.Registry, sourcePath string) ([]string, error) {
 	// Create initial message asking AI to find log files
-	messages := []claude.Message{
+	messages := []provider.Message{
 		{
 			Role: "user",
-			Content: []claude.ContentBlock{
+			Content: []provider.ContentBlock{
 				{
 					Type: "text",
 					Text: "Please analyze the application source code and find the log file paths. Search for log configuration in the code using the grep tool to find logging setup (search for patterns like 'log', 'SetOutput', 'logrus', 'zap', etc.). Return a JSON array of log file paths.",
@@ -46,11 +46,11 @@ func DetectLogFiles(claudeClient *claude.Client, toolRegistry *tools.Registry, s
 	// Call Claude API with tools (allow up to 3 turns for AI to use tools)
 	maxTurns := 3
 	for turn := 0; turn < maxTurns; turn++ {
-		log.Printf("[Analyzer] Turn %d: Calling Claude API...", turn+1)
+		log.Printf("[Analyzer] Turn %d: Calling AI API...", turn+1)
 
-		response, err := claudeClient.SendMessage(messages, toolDefs, analyzeSystemPrompt)
+		response, err := aiProvider.SendMessage(messages, toolDefs, analyzeSystemPrompt)
 		if err != nil {
-			return nil, fmt.Errorf("failed to call Claude API: %w", err)
+			return nil, fmt.Errorf("failed to call AI API: %w", err)
 		}
 
 		// Check stop reason
@@ -67,7 +67,7 @@ func DetectLogFiles(claudeClient *claude.Client, toolRegistry *tools.Registry, s
 		// Handle tool use
 		if response.StopReason == "tool_use" {
 			// Execute tools and add results to conversation
-			var toolResults []claude.ContentBlock
+			var toolResults []provider.ContentBlock
 
 			for _, block := range response.Content {
 				if block.Type == "tool_use" {
@@ -77,7 +77,7 @@ func DetectLogFiles(claudeClient *claude.Client, toolRegistry *tools.Registry, s
 						result = fmt.Sprintf("Error: %v", err)
 					}
 
-					toolResults = append(toolResults, claude.ContentBlock{
+					toolResults = append(toolResults, provider.ContentBlock{
 						Type:      "tool_result",
 						ToolUseID: block.ID,
 						Content:   result,
@@ -86,13 +86,13 @@ func DetectLogFiles(claudeClient *claude.Client, toolRegistry *tools.Registry, s
 			}
 
 			// Add assistant's response to messages
-			messages = append(messages, claude.Message{
+			messages = append(messages, provider.Message{
 				Role:    "assistant",
 				Content: response.Content,
 			})
 
 			// Add tool results
-			messages = append(messages, claude.Message{
+			messages = append(messages, provider.Message{
 				Role:    "user",
 				Content: toolResults,
 			})

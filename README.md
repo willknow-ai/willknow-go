@@ -9,6 +9,7 @@
 ## 特性
 
 - ✅ **零配置集成**：只需几行代码即可为你的 Go 程序添加 AI 助手
+- ✅ **多模型支持**：支持 Anthropic Claude 和 DeepSeek
 - ✅ **智能诊断**：AI 可以读取源代码和日志文件，自动分析问题
 - ✅ **Web 界面**：优美的聊天界面，支持实时对话
 - ✅ **容器化优先**：为 Docker/Kubernetes 部署优化
@@ -38,10 +39,11 @@ func main() {
     // 启动 AI 助手（独立 goroutine）
     go func() {
         assistant, err := aiassistant.New(aiassistant.Config{
-            SourcePath:   "/app/source",              // 源码路径
-            LogFiles:     []string{"/var/log/app.log"}, // 可选，留空自动检测
-            Port:         8888,                       // AI 助手端口
-            ClaudeAPIKey: os.Getenv("CLAUDE_API_KEY"),
+            SourcePath: "/app/source",              // 源码路径
+            LogFiles:   []string{"/var/log/app.log"}, // 可选，留空自动检测
+            Port:       8888,                       // AI 助手端口
+            Provider:   "anthropic",                // 或 "deepseek"
+            APIKey:     os.Getenv("AI_API_KEY"),
         })
 
         if err != nil {
@@ -79,9 +81,10 @@ CMD ["./myapp"]
 # 构建镜像
 docker build -t myapp .
 
-# 运行容器（需要 Claude API Key）
+# 运行容器（需要 AI API Key）
 docker run -p 8080:8080 -p 8888:8888 \
-  -e CLAUDE_API_KEY=your-api-key \
+  -e AI_API_KEY=your-api-key \
+  -e AI_PROVIDER=anthropic \
   myapp
 ```
 
@@ -99,13 +102,17 @@ docker run -p 8080:8080 -p 8888:8888 \
 ```bash
 cd examples
 
-# 本地运行（需要设置 CLAUDE_API_KEY）
-export CLAUDE_API_KEY=your-key
+# 本地运行（需要设置 AI_API_KEY）
+export AI_API_KEY=your-key
+export AI_PROVIDER=anthropic  # 或 deepseek
 go run main.go
 
 # 或使用 Docker
 docker build -t ai-assistant-demo .
-docker run -p 8080:8080 -p 8888:8888 -e CLAUDE_API_KEY=your-key ai-assistant-demo
+docker run -p 8080:8080 -p 8888:8888 \
+  -e AI_API_KEY=your-key \
+  -e AI_PROVIDER=anthropic \
+  ai-assistant-demo
 ```
 
 访问：
@@ -153,11 +160,16 @@ type Config struct {
     // 默认：8888
     Port int
 
-    // Claude API Key（必填）
-    ClaudeAPIKey string
+    // AI 提供商（anthropic, deepseek）
+    // 默认：anthropic
+    Provider string
 
-    // Claude 模型
-    // 默认：claude-sonnet-4-5-20250929
+    // AI API Key（必填）
+    APIKey string
+
+    // AI 模型
+    // 默认：anthropic 使用 claude-sonnet-4-5-20250929
+    //      deepseek 使用 deepseek-chat
     Model string
 }
 ```
@@ -190,7 +202,7 @@ A: MVP 版本无认证，只建议在开发/测试环境使用。生产环境需
 ## 技术栈
 
 - **后端**：Go 1.21+
-- **AI**：Claude API (Sonnet 4.5)
+- **AI**：支持 Anthropic Claude 和 DeepSeek
 - **WebSocket**：gorilla/websocket
 - **前端**：原生 HTML/CSS/JavaScript
 
