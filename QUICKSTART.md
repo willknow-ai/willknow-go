@@ -1,6 +1,6 @@
 # 快速开始指南
 
-## 5 分钟体验 Go AI Assistant
+## 5 分钟体验 Willknow
 
 ### 前置要求
 
@@ -13,7 +13,7 @@
 ```bash
 cd /path/to/your/workspace
 # 如果你还没有克隆，这里假设你已经在项目目录中
-cd go-ai-assistant
+cd willknow
 ```
 
 **2. 设置 API Key**
@@ -51,12 +51,12 @@ RequestID abc12345 出错了，帮我分析
 
 **1. 安装库**
 ```bash
-go get github.com/dear/go-ai-assistant
+go get github.com/willknow-ai/willknow-go
 ```
 
 **2. 添加代码**
 ```go
-import aiassistant "github.com/dear/go-ai-assistant"
+import aiassistant "github.com/willknow-ai/willknow-go"
 
 func main() {
     go func() {

@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/dear/go-ai-assistant/analyzer"
-	"github.com/dear/go-ai-assistant/claude"
-	"github.com/dear/go-ai-assistant/tools"
+	"github.com/willknow-ai/willknow-go/analyzer"
+	"github.com/willknow-ai/willknow-go/claude"
+	"github.com/willknow-ai/willknow-go/tools"
 )
 
 // Assistant is the main AI assistant instance

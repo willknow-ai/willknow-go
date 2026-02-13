@@ -1,6 +1,6 @@
 # Example Application
 
-这是一个演示如何使用 Go AI Assistant 的示例程序。
+这是一个演示如何使用 Willknow 的示例程序。
 
 ## 快速开始
 
@@ -8,15 +8,15 @@
 
 ```bash
 # 1. 进入项目根目录
-cd /path/to/go-ai-assistant
+cd /path/to/willknow
 
 # 2. 构建 Docker 镜像
-docker build -f examples/Dockerfile -t ai-assistant-demo .
+docker build -f examples/Dockerfile -t willknow-demo .
 
 # 3. 运行容器（需要设置 Claude API Key）
 docker run -p 8080:8080 -p 8888:8888 \
   -e CLAUDE_API_KEY=your-claude-api-key \
-  ai-assistant-demo
+  willknow-demo
 ```
 
 ### 方式 2: 本地运行（用于开发）

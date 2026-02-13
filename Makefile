@@ -1,7 +1,7 @@
 .PHONY: help build run docker-build docker-run clean test
 
 help:
-	@echo "Go AI Assistant - 可用命令:"
+	@echo "Willknow - 可用命令:"
 	@echo "  make build        - 构建示例程序"
 	@echo "  make run          - 本地运行示例程序"
 	@echo "  make docker-build - 构建 Docker 镜像"
@@ -11,8 +11,8 @@ help:
 
 build:
 	@echo "构建示例程序..."
-	cd examples && go build -o ../bin/ai-assistant-demo main.go
-	@echo "✅ 构建完成: bin/ai-assistant-demo"
+	cd examples && go build -o ../bin/willknow-demo main.go
+	@echo "✅ 构建完成: bin/willknow-demo"
 
 run:
 	@if [ -z "$$CLAUDE_API_KEY" ]; then \
@@ -26,8 +26,8 @@ run:
 
 docker-build:
 	@echo "构建 Docker 镜像..."
-	docker build -f examples/Dockerfile -t go-ai-assistant-demo .
-	@echo "✅ Docker 镜像构建完成: go-ai-assistant-demo"
+	docker build -f examples/Dockerfile -t willknow-demo .
+	@echo "✅ Docker 镜像构建完成: willknow-demo"
 
 docker-run:
 	@if [ -z "$$CLAUDE_API_KEY" ]; then \
@@ -38,7 +38,7 @@ docker-run:
 	@echo "启动 Docker 容器..."
 	docker run --rm -p 8080:8080 -p 8888:8888 \
 		-e CLAUDE_API_KEY=$$CLAUDE_API_KEY \
-		go-ai-assistant-demo
+		willknow-demo
 
 test:
 	@echo "运行测试..."

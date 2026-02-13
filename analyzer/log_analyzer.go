@@ -6,8 +6,8 @@ import (
 	"log"
 	"strings"
 
-	"github.com/dear/go-ai-assistant/claude"
-	"github.com/dear/go-ai-assistant/tools"
+	"github.com/willknow-ai/willknow-go/claude"
+	"github.com/willknow-ai/willknow-go/tools"
 )
 
 const analyzeSystemPrompt = `You are a code analyzer. Your task is to find log file paths in the application code.

@@ -3,7 +3,7 @@ package tools
 import (
 	"fmt"
 
-	"github.com/dear/go-ai-assistant/claude"
+	"github.com/willknow-ai/willknow-go/claude"
 )
 
 // ToolExecutor is an interface for tool execution

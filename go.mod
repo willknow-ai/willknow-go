@@ -1,4 +1,4 @@
-module github.com/dear/go-ai-assistant
+module github.com/willknow-ai/willknow-go
 
 go 1.21
 

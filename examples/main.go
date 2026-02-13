@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	aiassistant "github.com/dear/go-ai-assistant"
+	aiassistant "github.com/willknow-ai/willknow-go"
 )
 
 // Logger writes logs to file

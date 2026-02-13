@@ -1,10 +1,10 @@
-# Go AI Assistant
+# Willknow
 
 🤖 AI-powered debugging and diagnostics library for Go applications.
 
 ## 项目动机
 
-在 AI 时代，程序出现问题时不应该还需要人工去排查。Go AI Assistant 让你的程序自带 AI 助手，用户可以直接向 AI 咨询程序问题，AI 会自动分析代码和日志，快速定位问题原因。
+在 AI 时代，程序出现问题时不应该还需要人工去排查。Willknow 让你的程序自带 AI 助手，用户可以直接向 AI 咨询程序问题，AI 会自动分析代码和日志，快速定位问题原因。
 
 ## 特性
 
@@ -19,7 +19,7 @@
 ### 1. 安装
 
 ```bash
-go get github.com/dear/go-ai-assistant
+go get github.com/willknow-ai/willknow-go
 ```
 
 ### 2. 集成到你的程序
@@ -31,7 +31,7 @@ import (
     "net/http"
     "os"
 
-    aiassistant "github.com/dear/go-ai-assistant"
+    aiassistant "github.com/willknow-ai/willknow-go"
 )
 
 func main() {

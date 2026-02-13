@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/dear/go-ai-assistant/claude"
+	"github.com/willknow-ai/willknow-go/claude"
 	"github.com/gorilla/websocket"
 )
 
