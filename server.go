@@ -132,10 +132,54 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
         }
         .message strong {
             display: block;
-            margin-bottom: 5px;
+            margin-bottom: 8px;
             font-size: 12px;
             text-transform: uppercase;
             opacity: 0.7;
+        }
+        .message-content {
+            line-height: 1.6;
+        }
+        .message-content p {
+            margin: 0.5em 0;
+        }
+        .message-content h1, .message-content h2, .message-content h3 {
+            margin: 1em 0 0.5em 0;
+            font-weight: 600;
+        }
+        .message-content h1 { font-size: 1.5em; }
+        .message-content h2 { font-size: 1.3em; }
+        .message-content h3 { font-size: 1.1em; }
+        .message-content ul, .message-content ol {
+            margin: 0.5em 0;
+            padding-left: 2em;
+        }
+        .message-content li {
+            margin: 0.3em 0;
+        }
+        .message-content pre {
+            background: #282c34;
+            color: #abb2bf;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            margin: 10px 0;
+        }
+        .message-content code {
+            background: #282c34;
+            color: #e06c75;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 13px;
+            font-family: 'Courier New', monospace;
+        }
+        .message-content pre code {
+            background: transparent;
+            color: #abb2bf;
+            padding: 0;
+        }
+        .message-content em {
+            font-style: italic;
         }
         .input-area {
             display: flex;
@@ -176,21 +220,6 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
             color: #666;
             font-style: italic;
             padding: 15px;
-        }
-        pre {
-            background: #282c34;
-            color: #abb2bf;
-            padding: 15px;
-            border-radius: 5px;
-            overflow-x: auto;
-            margin: 10px 0;
-        }
-        code {
-            background: #282c34;
-            color: #e06c75;
-            padding: 2px 6px;
-            border-radius: 3px;
-            font-size: 13px;
         }
     </style>
 </head>
@@ -234,7 +263,14 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
                     // Add or append to assistant message
                     const lastMsg = messagesDiv.lastElementChild;
                     if (lastMsg && lastMsg.classList.contains('assistant') && !lastMsg.dataset.complete) {
-                        lastMsg.innerHTML += response.content;
+                        // Append to existing message content
+                        const contentDiv = lastMsg.querySelector('.message-content');
+                        if (contentDiv) {
+                            const currentText = contentDiv.dataset.rawText || '';
+                            const newText = currentText + response.content;
+                            contentDiv.dataset.rawText = newText;
+                            contentDiv.innerHTML = formatMarkdown(newText);
+                        }
                     } else {
                         addMessage('assistant', response.content);
                     }
@@ -268,13 +304,19 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
             div.className = 'message ' + type;
 
             if (type === 'user') {
-                div.innerHTML = '<strong>You</strong>' + escapeHtml(content);
+                div.innerHTML = '<strong>You</strong><div class="message-content">' + escapeHtml(content) + '</div>';
             } else if (type === 'assistant') {
-                div.innerHTML = '<strong>AI Assistant</strong>' + formatMarkdown(content);
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'message-content';
+                contentDiv.dataset.rawText = content;
+                contentDiv.innerHTML = formatMarkdown(content);
+                
+                div.innerHTML = '<strong>AI Assistant</strong>';
+                div.appendChild(contentDiv);
             } else if (type === 'system') {
-                div.innerHTML = '<strong>System</strong>' + escapeHtml(content);
+                div.innerHTML = '<strong>System</strong><div class="message-content">' + escapeHtml(content) + '</div>';
             } else if (type === 'error') {
-                div.innerHTML = '<strong>Error</strong>' + escapeHtml(content);
+                div.innerHTML = '<strong>Error</strong><div class="message-content">' + escapeHtml(content) + '</div>';
             }
 
             messagesDiv.appendChild(div);
@@ -282,18 +324,38 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
         }
 
         function formatMarkdown(text) {
-            // Simple markdown formatting
             text = escapeHtml(text);
-            // Use charCode to avoid backtick in Go raw string
+            
             var backtick = String.fromCharCode(96);
             var tripleBacktick = backtick + backtick + backtick;
-            var codeBlockRegex = new RegExp(tripleBacktick + '([\\s\\S]*?)' + tripleBacktick, 'g');
-            var inlineCodeRegex = new RegExp(backtick + '([^' + backtick + ']+)' + backtick, 'g');
-
-            text = text.replace(codeBlockRegex, '<pre>$1</pre>');
+            
+            var codeBlockPattern = tripleBacktick + '(\\w+)?\\n?([\\s\\S]*?)' + tripleBacktick;
+            var codeBlockRegex = new RegExp(codeBlockPattern, 'g');
+            text = text.replace(codeBlockRegex, '<pre><code>$2</code></pre>');
+            
+            var inlineCodePattern = backtick + '([^' + backtick + ']+)' + backtick;
+            var inlineCodeRegex = new RegExp(inlineCodePattern, 'g');
             text = text.replace(inlineCodeRegex, '<code>$1</code>');
-            text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+            
+            text = text.replace(/\*\*([^\*]+)\*\*/g, '<strong>$1</strong>');
+            text = text.replace(/\*([^\*]+)\*/g, '<em>$1</em>');
+            
+            text = text.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+            text = text.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+            text = text.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+            
+            text = text.replace(/^[\-\*] (.+)$/gm, '<li>$1</li>');
+            text = text.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+            
+            text = text.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+            
+            text = text.replace(/\n\n/g, '</p><p>');
             text = text.replace(/\n/g, '<br>');
+            
+            if (!text.startsWith('<')) {
+                text = '<p>' + text + '</p>';
+            }
+            
             return text;
         }
 
