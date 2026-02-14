@@ -8,30 +8,29 @@ import (
 	"net/http"
 )
 
-const deepseekAPIURL = "https://api.deepseek.com/v1/chat/completions"
-
-// DeepSeekProvider implements the Provider interface for DeepSeek
-type DeepSeekProvider struct {
+// OpenAICompatibleProvider implements the Provider interface for OpenAI-compatible APIs
+type OpenAICompatibleProvider struct {
 	apiKey     string
 	model      string
+	baseURL    string
+	name       string
 	httpClient *http.Client
 }
 
-// NewDeepSeekProvider creates a new DeepSeek provider
-func NewDeepSeekProvider(apiKey, model string) *DeepSeekProvider {
-	if model == "" {
-		model = "deepseek-chat"
-	}
-	return &DeepSeekProvider{
+// NewOpenAICompatibleProvider creates a new OpenAI-compatible provider
+func NewOpenAICompatibleProvider(apiKey, model, baseURL, name string) *OpenAICompatibleProvider {
+	return &OpenAICompatibleProvider{
 		apiKey:     apiKey,
 		model:      model,
+		baseURL:    baseURL,
+		name:       name,
 		httpClient: &http.Client{},
 	}
 }
 
 // GetName returns the provider name
-func (p *DeepSeekProvider) GetName() string {
-	return "DeepSeek"
+func (p *OpenAICompatibleProvider) GetName() string {
+	return p.name
 }
 
 // convertToOpenAITools converts provider tools to OpenAI format
@@ -208,8 +207,8 @@ func convertFromOpenAIFormat(openAIResp map[string]interface{}) (*Response, erro
 	return response, nil
 }
 
-// SendMessage sends a message to DeepSeek and returns the response
-func (p *DeepSeekProvider) SendMessage(messages []Message, tools []Tool, system string) (*Response, error) {
+// SendMessage sends a message and returns the response
+func (p *OpenAICompatibleProvider) SendMessage(messages []Message, tools []Tool, system string) (*Response, error) {
 	openAIMessages := convertToOpenAIFormat(messages)
 
 	// Add system message if provided
@@ -237,7 +236,8 @@ func (p *DeepSeekProvider) SendMessage(messages []Message, tools []Tool, system 
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequest("POST", deepseekAPIURL, bytes.NewBuffer(reqBody))
+	apiURL := p.baseURL + "/chat/completions"
+	httpReq, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -268,8 +268,8 @@ func (p *DeepSeekProvider) SendMessage(messages []Message, tools []Tool, system 
 	return convertFromOpenAIFormat(openAIResp)
 }
 
-// SendMessageStream sends a message to DeepSeek and streams the response
-func (p *DeepSeekProvider) SendMessageStream(messages []Message, tools []Tool, system string) (io.ReadCloser, error) {
+// SendMessageStream sends a message and returns a streaming response
+func (p *OpenAICompatibleProvider) SendMessageStream(messages []Message, tools []Tool, system string) (io.ReadCloser, error) {
 	openAIMessages := convertToOpenAIFormat(messages)
 
 	// Add system message if provided
@@ -298,7 +298,8 @@ func (p *DeepSeekProvider) SendMessageStream(messages []Message, tools []Tool, s
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequest("POST", deepseekAPIURL, bytes.NewBuffer(reqBody))
+	apiURL := p.baseURL + "/chat/completions"
+	httpReq, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}

@@ -26,7 +26,7 @@ func New(config Config) (*Assistant, error) {
 	}
 
 	// Create provider
-	aiProvider, err := provider.NewProvider(provider.ProviderType(config.Provider), config.APIKey, config.Model)
+	aiProvider, err := provider.NewProvider(provider.ProviderType(config.Provider), config.APIKey, config.Model, config.BaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create provider: %w", err)
 	}

@@ -14,7 +14,8 @@ type Config struct {
 	// Default: 8888
 	Port int
 
-	// Provider is the AI provider to use (anthropic, deepseek)
+	// Provider is the AI provider to use
+	// Supported: anthropic, openai, deepseek, qwen, moonshot, glm, xai, minimax, baichuan, 01ai, groq, together, siliconflow, custom
 	// Default: anthropic
 	Provider string
 
@@ -22,8 +23,13 @@ type Config struct {
 	APIKey string
 
 	// Model is the model to use
-	// Default: claude-3-5-sonnet-20241022 for anthropic, deepseek-chat for deepseek
+	// If empty, uses the provider's default model
 	Model string
+
+	// BaseURL is the custom API endpoint (for custom or self-hosted providers)
+	// If empty, uses the provider's default endpoint
+	// Required for Provider="custom"
+	BaseURL string
 }
 
 // setDefaults sets default values for unspecified config fields
