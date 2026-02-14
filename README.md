@@ -9,11 +9,12 @@
 ## 特性
 
 - ✅ **零配置集成**：只需几行代码即可为你的 Go 程序添加 AI 助手
-- ✅ **多模型支持**：支持 Anthropic Claude 和 DeepSeek
+- ✅ **多模型支持**：支持 15+ AI 模型（Claude, DeepSeek, Qwen, Moonshot, GLM 等）
 - ✅ **智能诊断**：AI 可以读取源代码和日志文件，自动分析问题
 - ✅ **Web 界面**：优美的聊天界面，支持实时对话
 - ✅ **容器化优先**：为 Docker/Kubernetes 部署优化
 - ✅ **支持多种日志格式**：自动识别文本日志和 JSON 日志
+- ✅ **自定义模型**：支持公司内部部署的 OpenAI Compatible 模型
 
 ## 快速开始
 
@@ -144,6 +145,207 @@ AI 助手提供的工具：
 - `glob`：查找文件
 - `read_logs`：根据 RequestID 或关键词查询日志
 
+## 架构设计
+
+### 整体架构
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    用户浏览器                             │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │  Web UI (HTML/JS) - localhost:8888              │   │
+│  │  - 聊天界面                                      │   │
+│  │  - WebSocket 连接                                │   │
+│  └─────────────────────────────────────────────────┘   │
+└─────────────────┬───────────────────────────────────────┘
+                  │ WebSocket
+                  ↓
+┌─────────────────────────────────────────────────────────┐
+│              AI Assistant (Go Server)                   │
+│                                                          │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │  server.go - HTTP/WebSocket Server               │  │
+│  │  - 处理 WebSocket 连接                            │  │
+│  │  - 管理会话状态                                   │  │
+│  │  - 协调 AI 对话流程                               │  │
+│  └──────────────────────────────────────────────────┘  │
+│                      ↓                                   │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │  provider (AI 服务商层)                          │  │
+│  │  ├─ Anthropic Provider (Claude)                  │  │
+│  │  └─ OpenAI Compatible Provider (15+ 模型)       │  │
+│  └──────────────────────────────────────────────────┘  │
+│                      ↓                                   │
+│  ┌──────────────────────────────────────────────────┐  │
+│  │  tools (工具层)                                   │  │
+│  │  ├─ read_file  (读取源码)                        │  │
+│  │  ├─ grep       (搜索代码)                        │  │
+│  │  ├─ glob       (查找文件)                        │  │
+│  │  └─ read_logs  (查询日志)                        │  │
+│  └──────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 用户询问处理流程
+
+以 "RequestID abc123 出错了，帮我分析" 为例：
+
+#### 1. 前端发送消息
+```javascript
+// 浏览器通过 WebSocket 发送用户消息
+ws.send(JSON.stringify({
+    content: "RequestID abc123 出错了，帮我分析"
+}));
+```
+
+#### 2. 后端接收并创建会话
+```go
+// server.go: 接收消息，添加到会话历史
+session.messages = append(session.messages, provider.Message{
+    Role: "user",
+    Content: []provider.ContentBlock{
+        {Type: "text", Text: "RequestID abc123 出错了，帮我分析"},
+    },
+})
+```
+
+#### 3. 多轮对话循环
+
+```go
+// 允许最多 10 轮工具调用
+for turn := 0; turn < 10; turn++ {
+    // 调用 AI Provider
+    response := provider.SendMessage(
+        session.messages,  // 完整对话历史
+        tools,             // 可用工具列表
+        systemPrompt,      // 系统提示词
+    )
+
+    // 处理响应
+    if response.Type == "text" {
+        // 发送文字回复给前端
+        conn.WriteJSON(response.Text)
+    } else if response.Type == "tool_use" {
+        // AI 决定使用工具
+        result := toolRegistry.Execute(response.ToolName, response.Params)
+        // 将工具结果添加到会话，继续下一轮
+    }
+}
+```
+
+#### 4. 实际执行示例
+
+```
+👤 用户: "RequestID abc123 出错了，帮我分析"
+
+🤖 Turn 1: AI 决定使用 read_logs(query="abc123")
+🔧 工具执行: 返回相关日志
+   [ERROR] Database connection timeout
+
+🤖 Turn 2: AI 基于日志决定使用 read_file("main.go", 180-200)
+🔧 工具执行: 返回源码片段
+
+🤖 Turn 3: AI 分析完成，返回诊断结果
+📨 "发现问题在 main.go:188，数据库连接超时..."
+
+✅ 前端显示完整回复
+```
+
+### 核心组件
+
+#### 1. Provider 抽象层
+```go
+type Provider interface {
+    SendMessage(messages, tools, system) (*Response, error)
+}
+```
+- **Anthropic Provider**: Claude 专用 API 格式
+- **OpenAI Compatible Provider**: 支持 15+ 模型（DeepSeek, Qwen, GLM 等）
+- 格式自动转换，用户无感知切换
+
+#### 2. 工具注册系统
+```go
+type Registry struct {
+    tools map[string]ToolExecutor
+}
+```
+- 动态工具注册
+- 统一执行接口
+- AI 自主决定工具调用顺序
+
+#### 3. 会话管理
+```go
+type Session struct {
+    messages []provider.Message  // 完整对话历史
+    mu       sync.Mutex          // 并发安全
+}
+```
+- 每个 WebSocket 连接独立会话
+- 完整保存对话历史
+- 支持上下文理解
+
+### 数据流向
+
+```
+用户输入
+  ↓
+WebSocket 接收
+  ↓
+添加到会话历史
+  ↓
+┌─────────────────────────────────────┐
+│         多轮对话循环                 │
+│  ┌──────────────────────────────┐  │
+│  │ 1. 发送历史 + 工具定义 → AI  │  │
+│  └──────────────────────────────┘  │
+│              ↓                      │
+│  ┌──────────────────────────────┐  │
+│  │ 2. AI 返回：文字 or 工具调用 │  │
+│  └──────────────────────────────┘  │
+│              ↓                      │
+│         文字?    工具调用?           │
+│          ↓           ↓              │
+│    发送给前端    执行工具            │
+│                      ↓              │
+│              添加结果到历史           │
+│                      ↓              │
+│              继续下一轮 ──┐          │
+│                          │          │
+│  └───────────────────────┘          │
+└─────────────────────────────────────┘
+  ↓
+发送 "done" 信号
+```
+
+### 关键设计特点
+
+1. **AI 自主决策**
+   - AI 自主决定使用哪些工具
+   - AI 决定调用次数和顺序
+   - AI 决定何时结束对话
+
+2. **工具组合能力**
+   - 可以组合多个工具解决复杂问题
+   - 先查日志，再读源码，最后分析
+   - 每个工具的输出可以作为下一个工具的输入
+
+3. **流式用户体验**
+   - 实时推送 AI 思考过程
+   - WebSocket 保持长连接
+   - 即时显示文字回复
+
+4. **模型无关设计**
+   - 统一的 Provider 接口
+   - 支持 Anthropic 和 15+ OpenAI Compatible 模型
+   - 轻松扩展新模型
+
+5. **状态管理**
+   - 完整保存对话历史
+   - 支持上下文理解
+   - 并发安全的会话管理
+
+这就是为什么 Willknow 能够智能地分析代码和日志，而不需要人工编写复杂的诊断逻辑！
+
 ## 配置选项
 
 ```go
@@ -160,18 +362,52 @@ type Config struct {
     // 默认：8888
     Port int
 
-    // AI 提供商（anthropic, deepseek）
+    // AI 提供商
+    // 支持：anthropic, openai, deepseek, qwen, moonshot, glm, xai,
+    //       minimax, baichuan, 01ai, groq, together, siliconflow, custom
     // 默认：anthropic
     Provider string
 
     // AI API Key（必填）
     APIKey string
 
-    // AI 模型
-    // 默认：anthropic 使用 claude-sonnet-4-5-20250929
-    //      deepseek 使用 deepseek-chat
+    // AI 模型（可选）
+    // 留空使用提供商的默认模型
     Model string
+
+    // 自定义 API Endpoint（可选）
+    // 用于公司内部部署的模型或代理
+    // Provider="custom" 时必填
+    BaseURL string
 }
+```
+
+### 使用示例
+
+**使用 DeepSeek:**
+```go
+assistant, _ := aiassistant.New(aiassistant.Config{
+    Provider: "deepseek",
+    APIKey:   os.Getenv("DEEPSEEK_API_KEY"),
+})
+```
+
+**使用通义千问:**
+```go
+assistant, _ := aiassistant.New(aiassistant.Config{
+    Provider: "qwen",
+    APIKey:   os.Getenv("QWEN_API_KEY"),
+})
+```
+
+**使用公司内部模型:**
+```go
+assistant, _ := aiassistant.New(aiassistant.Config{
+    Provider: "custom",
+    BaseURL:  "http://internal-llm.company.com/v1",
+    APIKey:   "internal-key",
+    Model:    "company-model-v1",
+})
 ```
 
 ## 最佳实践
@@ -202,7 +438,11 @@ A: MVP 版本无认证，只建议在开发/测试环境使用。生产环境需
 ## 技术栈
 
 - **后端**：Go 1.21+
-- **AI**：支持 Anthropic Claude 和 DeepSeek
+- **AI 模型**：
+  - Anthropic Claude (独立实现)
+  - OpenAI Compatible (15+ 模型)
+    - DeepSeek, 通义千问, 智谱 GLM, Moonshot, XAI Grok 等
+    - 支持自定义内部模型
 - **WebSocket**：gorilla/websocket
 - **前端**：原生 HTML/CSS/JavaScript
 
