@@ -1,10 +1,16 @@
 package aiassistant
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/willknow-ai/willknow-go/provider"
@@ -45,14 +51,66 @@ type ChatMessage struct {
 
 // ChatResponse represents a response to the client
 type ChatResponse struct {
-	Type    string `json:"type"` // "text", "error", "done"
-	Content string `json:"content"`
+	Type      string `json:"type"`    // "text", "error", "done", "session_info"
+	Content   string `json:"content"` // text content
+	SessionID string `json:"sessionId,omitempty"` // session identifier
 }
 
 // Session manages a chat session
 type Session struct {
+	ID       string
 	messages []provider.Message
+	logFile  *os.File
 	mu       sync.Mutex
+}
+
+// generateSessionID creates a unique session identifier
+func generateSessionID() string {
+	bytes := make([]byte, 8)
+	rand.Read(bytes)
+	return hex.EncodeToString(bytes)
+}
+
+// initSessionLog creates a log file for the session
+func initSessionLog(sessionID string) (*os.File, error) {
+	// Create sessions directory
+	logDir := "./sessions"
+	os.MkdirAll(logDir, 0755)
+
+	// Create log file with timestamp
+	timestamp := time.Now().Format("20060102_150405")
+	filename := fmt.Sprintf("%s_%s.jsonl", timestamp, sessionID)
+	filepath := filepath.Join(logDir, filename)
+
+	file, err := os.OpenFile(filepath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return nil, err
+	}
+
+	return file, nil
+}
+
+// logSessionEvent logs an event to the session log file
+func (s *Session) logEvent(eventType string, data interface{}) {
+	if s.logFile == nil {
+		return
+	}
+
+	event := map[string]interface{}{
+		"timestamp":  time.Now().Format(time.RFC3339),
+		"session_id": s.ID,
+		"type":       eventType,
+		"data":       data,
+	}
+
+	jsonData, err := json.Marshal(event)
+	if err != nil {
+		log.Printf("Failed to marshal session event: %v", err)
+		return
+	}
+
+	s.logFile.Write(jsonData)
+	s.logFile.WriteString("\n")
 }
 
 func startServer(a *Assistant) error {
@@ -227,6 +285,7 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
     <div class="header">
         <h1>🤖 AI Assistant</h1>
         <p>Your intelligent debugging companion</p>
+        <p id="sessionInfo" style="font-size: 12px; opacity: 0.8; margin-top: 5px;"></p>
     </div>
     <div class="container">
         <div id="messages"></div>
@@ -240,9 +299,11 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
         const messagesDiv = document.getElementById('messages');
         const messageInput = document.getElementById('messageInput');
         const sendButton = document.getElementById('sendButton');
+        const sessionInfo = document.getElementById('sessionInfo');
 
         let ws;
         let isProcessing = false;
+        let currentSessionId = '';
 
         function connect() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -255,7 +316,11 @@ func serveHome(w http.ResponseWriter, r *http.Request) {
             ws.onmessage = (event) => {
                 const response = JSON.parse(event.data);
 
-                if (response.type === 'text') {
+                if (response.type === 'session_info') {
+                    // Store and display session ID
+                    currentSessionId = response.sessionId;
+                    sessionInfo.textContent = 'Session ID: ' + currentSessionId;
+                } else if (response.type === 'text') {
                     // Remove typing indicator
                     const typing = document.querySelector('.typing');
                     if (typing) typing.remove();
@@ -406,17 +471,58 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, a *Assistant) {
 	}
 	defer conn.Close()
 
-	session := &Session{
-		messages: []provider.Message{},
+	// Generate unique session ID
+	sessionID := generateSessionID()
+
+	// Initialize session log
+	logFile, err := initSessionLog(sessionID)
+	if err != nil {
+		log.Printf("Failed to create session log: %v", err)
+		// Continue without logging
 	}
+	defer func() {
+		if logFile != nil {
+			logFile.Close()
+		}
+	}()
+
+	session := &Session{
+		ID:       sessionID,
+		messages: []provider.Message{},
+		logFile:  logFile,
+	}
+
+	// Log session start
+	session.logEvent("session_start", map[string]interface{}{
+		"timestamp": time.Now().Format(time.RFC3339),
+		"remote_addr": r.RemoteAddr,
+	})
+
+	// Send session info to client
+	conn.WriteJSON(ChatResponse{
+		Type:      "session_info",
+		SessionID: sessionID,
+		Content:   fmt.Sprintf("Session %s started", sessionID),
+	})
+
+	log.Printf("[Session %s] Started", sessionID)
 
 	for {
 		var msg ChatMessage
 		err := conn.ReadJSON(&msg)
 		if err != nil {
-			log.Printf("WebSocket read error: %v", err)
+			log.Printf("[Session %s] WebSocket read error: %v", sessionID, err)
+			session.logEvent("session_end", map[string]interface{}{
+				"reason": "connection_closed",
+				"error": err.Error(),
+			})
 			break
 		}
+
+		// Log user message
+		session.logEvent("user_message", map[string]interface{}{
+			"content": msg.Content,
+		})
 
 		// Add user message to session
 		session.mu.Lock()
@@ -428,9 +534,15 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, a *Assistant) {
 		})
 		session.mu.Unlock()
 
-		// Process with Claude API (allow multiple tool use turns)
+		log.Printf("[Session %s] User: %s", sessionID, msg.Content)
+
+		// Process with AI (allow multiple tool use turns)
 		err = processChat(conn, a, session)
 		if err != nil {
+			log.Printf("[Session %s] Error: %v", sessionID, err)
+			session.logEvent("error", map[string]interface{}{
+				"error": err.Error(),
+			})
 			conn.WriteJSON(ChatResponse{
 				Type:    "error",
 				Content: fmt.Sprintf("Error: %v", err),
@@ -440,6 +552,8 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, a *Assistant) {
 		// Send done signal
 		conn.WriteJSON(ChatResponse{Type: "done"})
 	}
+
+	log.Printf("[Session %s] Ended", sessionID)
 }
 
 func processChat(conn *websocket.Conn, a *Assistant, session *Session) error {
@@ -470,9 +584,21 @@ func processChat(conn *websocket.Conn, a *Assistant, session *Session) error {
 					Content: block.Text,
 				})
 				assistantContent = append(assistantContent, block)
+
+				// Log AI text response
+				session.logEvent("assistant_message", map[string]interface{}{
+					"content": block.Text,
+				})
 			} else if block.Type == "tool_use" {
 				hasToolUse = true
 				assistantContent = append(assistantContent, block)
+
+				// Log tool use
+				session.logEvent("tool_use", map[string]interface{}{
+					"tool_name": block.Name,
+					"tool_id":   block.ID,
+					"input":     block.Input,
+				})
 
 				// Execute tool
 				log.Printf("Executing tool: %s", block.Name)
@@ -480,6 +606,14 @@ func processChat(conn *websocket.Conn, a *Assistant, session *Session) error {
 				if err != nil {
 					result = fmt.Sprintf("Error: %v", err)
 				}
+
+				// Log tool result
+				session.logEvent("tool_result", map[string]interface{}{
+					"tool_name": block.Name,
+					"tool_id":   block.ID,
+					"result":    result,
+					"error":     err != nil,
+				})
 
 				// Add tool result to next message
 				session.mu.Lock()
