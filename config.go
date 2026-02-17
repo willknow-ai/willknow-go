@@ -30,6 +30,10 @@ type Config struct {
 	// If empty, uses the provider's default endpoint
 	// Required for Provider="custom"
 	BaseURL string
+
+	// Auth configures authentication for the AI assistant.
+	// See AuthConfig for details on the three supported modes.
+	Auth AuthConfig
 }
 
 // setDefaults sets default values for unspecified config fields

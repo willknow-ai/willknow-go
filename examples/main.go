@@ -73,6 +73,9 @@ func main() {
 			Port:       8888,
 			Provider:   provider,
 			APIKey:     apiKey,
+			Auth: aiassistant.AuthConfig{
+				Password: "willknow",
+			},
 		})
 
 		if err != nil {

@@ -14,6 +14,7 @@ type Assistant struct {
 	config       Config
 	provider     provider.Provider
 	toolRegistry *tools.Registry
+	authManager  *AuthManager
 }
 
 // New creates a new AI Assistant instance
@@ -34,10 +35,14 @@ func New(config Config) (*Assistant, error) {
 	// Create tool registry
 	toolRegistry := tools.NewRegistry(config.SourcePath)
 
+	// Initialize auth manager
+	authManager := newAuthManager(config.Auth)
+
 	assistant := &Assistant{
 		config:       config,
 		provider:     aiProvider,
 		toolRegistry: toolRegistry,
+		authManager:  authManager,
 	}
 
 	// Auto-detect log files if not provided
@@ -64,7 +69,9 @@ func (a *Assistant) Start() error {
 	log.Printf("[AI Assistant] Starting on port %d...", a.config.Port)
 	log.Printf("[AI Assistant] Source path: %s", a.config.SourcePath)
 	log.Printf("[AI Assistant] Log files: %v", a.config.LogFiles)
-	log.Printf("[AI Assistant] Web UI will be available at http://localhost:%d", a.config.Port)
+
+	// Print auth startup message (password, open mode notice, etc.)
+	a.authManager.printStartupMessage(a.config.Port)
 
 	return startServer(a)
 }

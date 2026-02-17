@@ -1,6 +1,7 @@
 package aiassistant
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -15,6 +16,11 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/willknow-ai/willknow-go/provider"
 )
+
+// contextKey is used to store values in request context without collisions
+type contextKey string
+
+const userContextKey contextKey = "willknow_user"
 
 const systemPrompt = `You are an AI debugging assistant embedded in a running application.
 
@@ -59,6 +65,7 @@ type ChatResponse struct {
 // Session manages a chat session
 type Session struct {
 	ID       string
+	User     *User
 	messages []provider.Message
 	logFile  *os.File
 	mu       sync.Mutex
@@ -117,14 +124,165 @@ func startServer(a *Assistant) error {
 	// Create a new ServeMux for AI Assistant (independent from user's app)
 	mux := http.NewServeMux()
 
-	// Serve static files (for MVP, we'll create a simple HTML page)
-	mux.HandleFunc("/", serveHome)
-	mux.HandleFunc("/api/ws", func(w http.ResponseWriter, r *http.Request) {
-		handleWebSocket(w, r, a)
+	// Auth routes (no authentication required)
+	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, r *http.Request) {
+		handleLogin(w, r, a)
 	})
+	mux.HandleFunc("/auth/logout", func(w http.ResponseWriter, r *http.Request) {
+		handleLogout(w, r, a)
+	})
+
+	// Protected routes
+	mux.HandleFunc("/", authMiddleware(serveHome, a))
+	mux.HandleFunc("/api/ws", authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		handleWebSocket(w, r, a)
+	}, a))
 
 	addr := fmt.Sprintf(":%d", a.config.Port)
 	return http.ListenAndServe(addr, mux)
+}
+
+// authMiddleware wraps a handler with authentication checks.
+// In password mode: redirects unauthenticated requests to /auth/login.
+// In custom GetUser mode: returns 401 JSON if authentication fails.
+// In open mode: always allows access.
+func authMiddleware(next http.HandlerFunc, a *Assistant) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, err := a.authManager.authenticateRequest(r)
+		if err != nil {
+			if a.authManager.isPasswordMode() {
+				http.Redirect(w, r, "/auth/login", http.StatusFound)
+			} else {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnauthorized)
+				w.Write([]byte(`{"error":"unauthorized","message":"Please log in to your application first"}`))
+			}
+			return
+		}
+		ctx := context.WithValue(r.Context(), userContextKey, user)
+		next(w, r.WithContext(ctx))
+	}
+}
+
+// handleLogin handles GET (show form) and POST (verify password) for password mode.
+func handleLogin(w http.ResponseWriter, r *http.Request, a *Assistant) {
+	if !a.authManager.isPasswordMode() {
+		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		password := r.FormValue("password")
+		token, err := a.authManager.verifyPassword(password)
+		if err != nil {
+			serveLoginPage(w, "Incorrect password. Please try again.")
+			return
+		}
+		http.SetCookie(w, &http.Cookie{
+			Name:     "willknow_session",
+			Value:    token,
+			Path:     "/",
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+		})
+		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	}
+
+	serveLoginPage(w, "")
+}
+
+// handleLogout clears the session cookie.
+func handleLogout(w http.ResponseWriter, r *http.Request, a *Assistant) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "willknow_session",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+	})
+	http.Redirect(w, r, "/auth/login", http.StatusFound)
+}
+
+// serveLoginPage renders the password login page with an optional error message.
+func serveLoginPage(w http.ResponseWriter, errMsg string) {
+	errHTML := ""
+	if errMsg != "" {
+		errHTML = `<p class="error">` + errMsg + `</p>`
+	}
+	html := `<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Assistant - Login</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f5f5f5;
+        }
+        .login-box {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            width: 360px;
+        }
+        .login-box h1 {
+            font-size: 22px;
+            margin-bottom: 6px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .login-box p.subtitle { color: #666; font-size: 14px; margin-bottom: 28px; }
+        label { display: block; font-size: 13px; font-weight: 600; color: #444; margin-bottom: 6px; }
+        input[type=password] {
+            width: 100%;
+            padding: 10px 14px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 15px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        input[type=password]:focus { border-color: #667eea; }
+        button {
+            width: 100%;
+            padding: 12px;
+            margin-top: 16px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        button:hover { opacity: 0.9; }
+        .error { color: #c62828; font-size: 13px; margin-top: 12px; }
+    </style>
+</head>
+<body>
+    <div class="login-box">
+        <h1>AI Assistant</h1>
+        <p class="subtitle">Enter the password to access the assistant</p>
+        <form method="POST" action="/auth/login">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" autofocus placeholder="Enter password" />
+            <button type="submit">Sign In</button>
+            ` + errHTML + `
+        </form>
+    </div>
+</body>
+</html>`
+	w.Header().Set("Content-Type", "text/html")
+	w.Write([]byte(html))
 }
 
 func serveHome(w http.ResponseWriter, r *http.Request) {
@@ -488,14 +646,19 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, a *Assistant) {
 
 	session := &Session{
 		ID:       sessionID,
+		User:     r.Context().Value(userContextKey).(*User),
 		messages: []provider.Message{},
 		logFile:  logFile,
 	}
 
-	// Log session start
+	// Log session start with user info
+	userID := session.User.ID
+	userName := session.User.Name
 	session.logEvent("session_start", map[string]interface{}{
-		"timestamp": time.Now().Format(time.RFC3339),
+		"timestamp":   time.Now().Format(time.RFC3339),
 		"remote_addr": r.RemoteAddr,
+		"user_id":     userID,
+		"user_name":   userName,
 	})
 
 	// Send session info to client
@@ -505,7 +668,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, a *Assistant) {
 		Content:   fmt.Sprintf("Session %s started", sessionID),
 	})
 
-	log.Printf("[Session %s] Started", sessionID)
+	log.Printf("[Session %s] Started (user: %s)", sessionID, userID)
 
 	for {
 		var msg ChatMessage
