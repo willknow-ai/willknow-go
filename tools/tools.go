@@ -3,6 +3,7 @@ package tools
 import (
 	"fmt"
 
+	"github.com/willknow-ai/willknow-go/indexer"
 	"github.com/willknow-ai/willknow-go/provider"
 )
 
@@ -13,9 +14,10 @@ type ToolExecutor interface {
 
 // Registry manages all available tools
 type Registry struct {
-	sourcePath string
-	tools      map[string]ToolExecutor
-	logTool    *LogQueryTool
+	sourcePath    string
+	tools         map[string]ToolExecutor
+	logTool       *LogQueryTool
+	codeIndexTool *CodeIndexTool
 }
 
 // NewRegistry creates a new tool registry
@@ -30,6 +32,13 @@ func NewRegistry(sourcePath string) *Registry {
 func (r *Registry) RegisterLogTool(logFiles []string) {
 	r.logTool = &LogQueryTool{
 		logFiles: logFiles,
+	}
+}
+
+// RegisterCodeIndexTool registers the code index search tool
+func (r *Registry) RegisterCodeIndexTool(codeIndex *indexer.CodeIndex) {
+	r.codeIndexTool = &CodeIndexTool{
+		codeIndex: codeIndex,
 	}
 }
 
@@ -50,6 +59,11 @@ func (r *Registry) Execute(name string, params map[string]interface{}) (string, 
 			return "", fmt.Errorf("log tool not configured")
 		}
 		return r.logTool.Execute(params)
+	case "search_code_index":
+		if r.codeIndexTool == nil {
+			return "", fmt.Errorf("code index not available")
+		}
+		return r.codeIndexTool.Execute(params)
 	default:
 		return "", fmt.Errorf("unknown tool: %s", name)
 	}
@@ -133,6 +147,28 @@ func (r *Registry) GetToolDefinitions() []provider.Tool {
 					"context_lines": map[string]interface{}{
 						"type":        "integer",
 						"description": "Optional: Number of context lines to show before and after each match (default: 5)",
+					},
+				},
+				"required": []string{"query"},
+			},
+		})
+	}
+
+	// Add code index search tool if available
+	if r.codeIndexTool != nil {
+		tools = append(tools, provider.Tool{
+			Name:        "search_code_index",
+			Description: "Search the codebase using semantic search. Finds files based on their purpose and functionality using LLM-generated summaries. Use this when you need to find files related to specific features or concepts (e.g., 'authentication', 'database connection', 'API handlers').",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"query": map[string]interface{}{
+						"type":        "string",
+						"description": "The search query describing what you're looking for (e.g., 'authentication', 'logging', 'user management')",
+					},
+					"limit": map[string]interface{}{
+						"type":        "integer",
+						"description": "Optional: Maximum number of results to return (default: 10)",
 					},
 				},
 				"required": []string{"query"},

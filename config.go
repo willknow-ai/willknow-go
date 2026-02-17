@@ -34,6 +34,12 @@ type Config struct {
 	// Auth configures authentication for the AI assistant.
 	// See AuthConfig for details on the three supported modes.
 	Auth AuthConfig
+
+	// EnableCodeIndex enables built-in code indexing using LLM-generated summaries.
+	// When enabled, the assistant will scan source files at startup and build a searchable index.
+	// The index is cached to ./code_index.json with 24-hour TTL.
+	// Default: false (disabled)
+	EnableCodeIndex bool
 }
 
 // setDefaults sets default values for unspecified config fields
@@ -47,5 +53,6 @@ func (c *Config) setDefaults() {
 	if c.Provider == "" {
 		c.Provider = "anthropic"
 	}
+	// EnableCodeIndex defaults to false (disabled)
 	// Model defaults are set by the provider if not specified
 }

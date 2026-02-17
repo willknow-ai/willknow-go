@@ -76,6 +76,7 @@ func main() {
 			Auth: aiassistant.AuthConfig{
 				Password: "willknow",
 			},
+			EnableCodeIndex: true,
 		})
 
 		if err != nil {

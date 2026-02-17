@@ -3,8 +3,10 @@ package aiassistant
 import (
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/willknow-ai/willknow-go/analyzer"
+	"github.com/willknow-ai/willknow-go/indexer"
 	"github.com/willknow-ai/willknow-go/provider"
 	"github.com/willknow-ai/willknow-go/tools"
 )
@@ -15,6 +17,7 @@ type Assistant struct {
 	provider     provider.Provider
 	toolRegistry *tools.Registry
 	authManager  *AuthManager
+	codeIndex    *indexer.CodeIndex
 }
 
 // New creates a new AI Assistant instance
@@ -60,6 +63,46 @@ func New(config Config) (*Assistant, error) {
 
 	// Register log query tool with detected log files
 	toolRegistry.RegisterLogTool(assistant.config.LogFiles)
+
+	// Build or load code index (if enabled)
+	if config.EnableCodeIndex {
+		const indexPath = "./code_index.json"
+		const maxAge = 24 * time.Hour
+
+		if indexer.IsIndexRecent(indexPath, maxAge) {
+			log.Println("[AI Assistant] Loading existing code index...")
+			codeIndex, err := indexer.LoadIndex(indexPath)
+			if err != nil {
+				log.Printf("[AI Assistant] Warning: Failed to load code index: %v", err)
+				log.Println("[AI Assistant] Will build new index...")
+			} else {
+				assistant.codeIndex = codeIndex
+				log.Printf("[AI Assistant] Code index loaded: %d files indexed", len(codeIndex.Files))
+			}
+		}
+
+		// Build new index if not loaded
+		if assistant.codeIndex == nil {
+			log.Println("[AI Assistant] Building code index (this may take a few minutes)...")
+			codeIndex, err := indexer.BuildCodeIndex(config.SourcePath, aiProvider)
+			if err != nil {
+				log.Printf("[AI Assistant] Warning: Failed to build code index: %v", err)
+			} else {
+				assistant.codeIndex = codeIndex
+				log.Printf("[AI Assistant] Code index built: %d files indexed", len(codeIndex.Files))
+
+				// Save index for future use
+				if err := indexer.SaveIndex(indexPath, codeIndex); err != nil {
+					log.Printf("[AI Assistant] Warning: Failed to save code index: %v", err)
+				}
+			}
+		}
+
+		// Register code index search tool if index is available
+		if assistant.codeIndex != nil {
+			toolRegistry.RegisterCodeIndexTool(assistant.codeIndex)
+		}
+	}
 
 	return assistant, nil
 }
