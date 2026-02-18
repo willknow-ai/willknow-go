@@ -99,22 +99,38 @@ docker run -p 8080:8080 -p 8888:8888 \
 
 ## 示例程序
 
-项目包含一个完整的示例程序：
+完整的示例程序已移至独立仓库：[willknow-go-examples](https://github.com/willknow-ai/willknow-go-examples)
+
+### 可用示例
+
+#### 1. [Basic Example](https://github.com/willknow-ai/willknow-go-examples/tree/main/basic) - 调试助手
+最简单的入门示例，展示 Willknow 作为调试助手的核心功能。
+
+**特性：**
+- 日志分析和错误诊断
+- 代码阅读和搜索
+- 基于 RequestID 的问题排查
 
 ```bash
-cd examples
-
-# 本地运行（需要设置 AI_API_KEY）
+git clone https://github.com/willknow-ai/willknow-go-examples.git
+cd willknow-go-examples/basic
 export AI_API_KEY=your-key
-export AI_PROVIDER=anthropic  # 或 deepseek
 go run main.go
+```
 
-# 或使用 Docker
-docker build -t ai-assistant-demo .
-docker run -p 8080:8080 -p 8888:8888 \
-  -e AI_API_KEY=your-key \
-  -e AI_PROVIDER=anthropic \
-  ai-assistant-demo
+#### 2. [Agent API Example](https://github.com/willknow-ai/willknow-go-examples/tree/main/agent-api) - AI Agent
+展示 Willknow 作为 AI Agent，通过自然语言调用你的应用 API。
+
+**特性：**
+- OpenAPI 自动发现
+- 自然语言 API 调用
+- 多轮对话支持
+- 外部 AI 系统集成
+
+```bash
+cd willknow-go-examples/agent-api
+export AI_API_KEY=your-key
+go run main.go
 ```
 
 访问：
