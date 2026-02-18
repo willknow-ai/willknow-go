@@ -40,6 +40,33 @@ type Config struct {
 	// The index is cached to ./code_index.json with 24-hour TTL.
 	// Default: false (disabled)
 	EnableCodeIndex bool
+
+	// APISpec is the path to an OpenAPI spec file (YAML or JSON).
+	// When configured, the assistant automatically becomes an AI agent capable of calling
+	// the host system's APIs. This enables external AI systems to interact with the host
+	// through a single natural-language chat interface (/willknow/chat).
+	// Default: "" (disabled)
+	APISpec string
+
+	// HostBaseURL is the base URL for executing API calls when APISpec is configured.
+	// Defaults to the first server URL in the OpenAPI spec.
+	// Example: "http://localhost:8080"
+	HostBaseURL string
+
+	// AgentInfo describes this agent's identity for the /willknow/info discovery endpoint.
+	// Defaults to values from the OpenAPI spec's info section.
+	AgentInfo AgentInfo
+}
+
+// AgentInfo holds identity information for the agent discovery endpoint
+type AgentInfo struct {
+	// Name is the agent's display name
+	// Default: OpenAPI spec's info.title
+	Name string
+
+	// Description describes what this agent can do
+	// Default: OpenAPI spec's info.description
+	Description string
 }
 
 // setDefaults sets default values for unspecified config fields

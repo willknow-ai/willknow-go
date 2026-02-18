@@ -71,11 +71,12 @@ type ChatResponse struct {
 
 // Session manages a chat session
 type Session struct {
-	ID       string
-	User     *User
-	messages []provider.Message
-	logFile  *os.File
-	mu       sync.Mutex
+	ID         string
+	User       *User
+	messages   []provider.Message
+	logFile    *os.File
+	mu         sync.Mutex
+	authHeader string // original Authorization header for API forwarding
 }
 
 // generateSessionID creates a unique session identifier
@@ -131,6 +132,9 @@ func startServer(a *Assistant) error {
 	// Create a new ServeMux for AI Assistant (independent from user's app)
 	mux := http.NewServeMux()
 
+	// HTTP session store for /willknow/chat (external AI agents)
+	httpSessions := &httpSessionStore{sessions: make(map[string]*Session)}
+
 	// Auth routes (no authentication required)
 	mux.HandleFunc("/auth/login", func(w http.ResponseWriter, r *http.Request) {
 		handleLogin(w, r, a)
@@ -138,6 +142,16 @@ func startServer(a *Assistant) error {
 	mux.HandleFunc("/auth/logout", func(w http.ResponseWriter, r *http.Request) {
 		handleLogout(w, r, a)
 	})
+
+	// Agent discovery endpoint (public, no auth required)
+	mux.HandleFunc("/willknow/info", func(w http.ResponseWriter, r *http.Request) {
+		handleAgentInfo(w, r, a)
+	})
+
+	// Agent chat endpoint (auth required)
+	mux.HandleFunc("/willknow/chat", authMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		handleAgentChat(w, r, a, httpSessions)
+	}, a))
 
 	// Protected routes
 	mux.HandleFunc("/", authMiddleware(serveHome, a))
@@ -736,8 +750,8 @@ func processChat(conn *websocket.Conn, a *Assistant, session *Session) error {
 		copy(messages, session.messages)
 		session.mu.Unlock()
 
-		tools := a.toolRegistry.GetToolDefinitions()
-		response, err := a.provider.SendMessage(messages, tools, systemPrompt)
+		tools := a.getAllToolDefinitions()
+		response, err := a.provider.SendMessage(messages, tools, buildSystemPrompt(a))
 		if err != nil {
 			return err
 		}
@@ -772,7 +786,7 @@ func processChat(conn *websocket.Conn, a *Assistant, session *Session) error {
 
 				// Execute tool
 				log.Printf("Executing tool: %s", block.Name)
-				result, err := a.toolRegistry.Execute(block.Name, block.Input)
+				result, err := a.executeToolCall(block.Name, block.Input, session.authHeader)
 				if err != nil {
 					result = fmt.Sprintf("Error: %v", err)
 				}
@@ -806,6 +820,288 @@ func processChat(conn *websocket.Conn, a *Assistant, session *Session) error {
 		}
 
 		// If no tool use, we're done
+		if !hasToolUse {
+			session.mu.Lock()
+			session.messages = append(session.messages, provider.Message{
+				Role:    "assistant",
+				Content: assistantContent,
+			})
+			session.mu.Unlock()
+			break
+		}
+	}
+
+	return nil
+}
+
+// buildSystemPrompt returns the appropriate system prompt based on configuration
+func buildSystemPrompt(a *Assistant) string {
+	if a.config.APISpec != "" {
+		name := a.config.AgentInfo.Name
+		if name == "" {
+			name = "this application"
+		}
+		desc := a.config.AgentInfo.Description
+		if desc != "" {
+			desc = "\n\nAbout this system: " + desc
+		}
+		return `You are an AI agent for ` + name + `.` + desc + `
+
+Your role:
+- Help users accomplish tasks by calling the application's APIs
+- Understand natural language requests and translate them into API calls
+- Chain multiple API calls when needed to complete complex tasks
+- Explain what you're doing and report results clearly
+
+When a user makes a request:
+1. Identify which API operation(s) are needed
+2. Call the relevant tools with appropriate parameters
+3. Report the results in a clear, human-readable format
+4. If an API call fails, explain what went wrong and suggest alternatives
+
+Be helpful, concise, and always confirm when actions are completed successfully.`
+	}
+
+	return systemPrompt
+}
+
+// --- HTTP Session Store for /willknow/chat ---
+
+// httpSessionStore manages HTTP-based chat sessions for external AI callers
+type httpSessionStore struct {
+	mu       sync.Mutex
+	sessions map[string]*Session
+}
+
+func (s *httpSessionStore) get(id string) *Session {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.sessions[id]
+}
+
+func (s *httpSessionStore) set(id string, session *Session) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sessions[id] = session
+}
+
+// --- Agent Endpoints ---
+
+// AgentInfoResponse is the JSON response for /willknow/info
+type AgentInfoResponse struct {
+	Name         string             `json:"name"`
+	Description  string             `json:"description"`
+	ChatEndpoint string             `json:"chat_endpoint"`
+	Auth         AgentInfoAuth      `json:"authentication"`
+	Capabilities []AgentCapability  `json:"capabilities"`
+}
+
+// AgentInfoAuth describes authentication requirements
+type AgentInfoAuth struct {
+	Required bool   `json:"required"`
+	Type     string `json:"type"` // "bearer", "none"
+}
+
+// AgentCapability describes a single capability
+type AgentCapability struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// handleAgentInfo serves the /willknow/info discovery endpoint
+func handleAgentInfo(w http.ResponseWriter, r *http.Request, a *Assistant) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	name := a.config.AgentInfo.Name
+	if name == "" {
+		name = "Willknow AI Assistant"
+	}
+	desc := a.config.AgentInfo.Description
+	if desc == "" {
+		desc = "AI-powered assistant for debugging and application interaction"
+	}
+
+	// Build capabilities list
+	var capabilities []AgentCapability
+	for _, tool := range a.apiTools {
+		desc := tool.Description
+		if desc == "" {
+			desc = tool.Summary
+		}
+		capabilities = append(capabilities, AgentCapability{
+			Name:        tool.Name,
+			Description: desc,
+		})
+	}
+
+	// Determine auth requirement
+	authRequired := !a.authManager.isOpenMode()
+	authType := "bearer"
+	if !authRequired {
+		authType = "none"
+	}
+
+	// Build the chat endpoint URL
+	chatEndpoint := fmt.Sprintf("/willknow/chat")
+
+	resp := AgentInfoResponse{
+		Name:         name,
+		Description:  desc,
+		ChatEndpoint: chatEndpoint,
+		Auth: AgentInfoAuth{
+			Required: authRequired,
+			Type:     authType,
+		},
+		Capabilities: capabilities,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(resp)
+}
+
+// AgentChatRequest is the JSON body for POST /willknow/chat
+type AgentChatRequest struct {
+	Message   string `json:"message"`
+	SessionID string `json:"session_id"`
+}
+
+// AgentChatResponse is the JSON response for POST /willknow/chat
+type AgentChatResponse struct {
+	Message   string `json:"message"`
+	SessionID string `json:"session_id"`
+}
+
+// handleAgentChat handles POST /willknow/chat for external AI callers
+func handleAgentChat(w http.ResponseWriter, r *http.Request, a *Assistant, store *httpSessionStore) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req AgentChatRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+	if req.Message == "" {
+		http.Error(w, "message is required", http.StatusBadRequest)
+		return
+	}
+
+	// Get or create session
+	var session *Session
+	if req.SessionID != "" {
+		session = store.get(req.SessionID)
+	}
+	if session == nil {
+		sessionID := generateSessionID()
+		logFile, _ := initSessionLog(sessionID)
+
+		user, _ := r.Context().Value(userContextKey).(*User)
+		session = &Session{
+			ID:         sessionID,
+			User:       user,
+			messages:   []provider.Message{},
+			logFile:    logFile,
+			authHeader: r.Header.Get("Authorization"),
+		}
+		store.set(sessionID, session)
+		log.Printf("[Agent Session %s] Created", sessionID)
+	}
+
+	// Add user message to session
+	session.mu.Lock()
+	session.messages = append(session.messages, provider.Message{
+		Role: "user",
+		Content: []provider.ContentBlock{
+			{Type: "text", Text: req.Message},
+		},
+	})
+	session.mu.Unlock()
+
+	session.logEvent("user_message", map[string]interface{}{"content": req.Message})
+
+	// Collect AI response text
+	var responseText string
+	err := processChatHTTP(a, session, &responseText)
+	if err != nil {
+		log.Printf("[Agent Session %s] Error: %v", session.ID, err)
+		http.Error(w, fmt.Sprintf("Error: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(AgentChatResponse{
+		Message:   responseText,
+		SessionID: session.ID,
+	})
+}
+
+// processChatHTTP is like processChat but collects output as a string instead of streaming WebSocket
+func processChatHTTP(a *Assistant, session *Session, responseText *string) error {
+	maxTurns := 10
+
+	for turn := 0; turn < maxTurns; turn++ {
+		session.mu.Lock()
+		messages := make([]provider.Message, len(session.messages))
+		copy(messages, session.messages)
+		session.mu.Unlock()
+
+		tools := a.getAllToolDefinitions()
+		response, err := a.provider.SendMessage(messages, tools, buildSystemPrompt(a))
+		if err != nil {
+			return err
+		}
+
+		var assistantContent []provider.ContentBlock
+		hasToolUse := false
+
+		for _, block := range response.Content {
+			if block.Type == "text" {
+				*responseText += block.Text
+				assistantContent = append(assistantContent, block)
+				session.logEvent("assistant_message", map[string]interface{}{"content": block.Text})
+			} else if block.Type == "tool_use" {
+				hasToolUse = true
+				assistantContent = append(assistantContent, block)
+				session.logEvent("tool_use", map[string]interface{}{
+					"tool_name": block.Name,
+					"input":     block.Input,
+				})
+
+				result, err := a.executeToolCall(block.Name, block.Input, session.authHeader)
+				if err != nil {
+					result = fmt.Sprintf("Error: %v", err)
+				}
+				session.logEvent("tool_result", map[string]interface{}{
+					"tool_name": block.Name,
+					"result":    result,
+					"error":     err != nil,
+				})
+
+				session.mu.Lock()
+				session.messages = append(session.messages, provider.Message{
+					Role:    "assistant",
+					Content: assistantContent,
+				})
+				session.messages = append(session.messages, provider.Message{
+					Role: "user",
+					Content: []provider.ContentBlock{
+						{
+							Type:      "tool_result",
+							ToolUseID: block.ID,
+							Content:   result,
+						},
+					},
+				})
+				session.mu.Unlock()
+				assistantContent = nil
+			}
+		}
+
 		if !hasToolUse {
 			session.mu.Lock()
 			session.messages = append(session.messages, provider.Message{

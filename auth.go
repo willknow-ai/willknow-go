@@ -192,3 +192,8 @@ func (am *AuthManager) verifyPassword(password string) (string, error) {
 func (am *AuthManager) isPasswordMode() bool {
 	return am.mode == authModePassword
 }
+
+// isOpenMode returns true if authentication is fully disabled
+func (am *AuthManager) isOpenMode() bool {
+	return am.mode == authModeOpen
+}
